@@ -1,0 +1,353 @@
+\documentclass{article}
+
+\usepackage[english]{babel}
+\usepackage[a4paper,top=4cm,bottom=4cm,left=2cm,right=2cm,marginparwidth=1.75cm]{geometry}
+\title{ML: Assignment 1}
+
+% Useful packages
+\usepackage{parskip}
+\usepackage{amsmath}
+\usepackage{graphicx}
+\usepackage[colorlinks=true, allcolors=blue]{hyperref}
+\usepackage{float}
+\floatplacement{figure}{H}
+
+\begin{document}
+\maketitle
+
+\textbf{Time used for reading:}  5 \\ 
+\textbf{Time used for the basic assignment:} 7  \\
+\textbf{Time used for extra assignment (VG):} 0 \\
+\\
+\textbf{Good with lab:} \\
+One really good thing with the lab was that we got to first derive the gradient and the implement the function which made me understand gradient more profound. 
+
+\textbf{Things to improve in the lab:} \\
+However I was pretty difficult to understand some of the instructions for section 1 since we first derived the gradient of the likelihood function and then was not supposed to use it when implementing the functions in R.
+
+\textbf{Anything that was difficult with the material?} \\ 
+At the start, understanding the gradient was difficult but after reading some it became clear.
+
+\section*{Task 1: Basic, Stochastic, and Mini-Batch Gradient Descent}
+<<>>=
+library(uuml)
+data("binary")
+binary$gre_sd <- (binary$gre - mean(binary$gre))/sd(binary$gre)
+binary$gpa_sd <- (binary$gpa - mean(binary$gpa))/sd(binary$gpa)
+X <- model.matrix(admit ~ gre_sd + gpa_sd, binary)
+y <- binary$admit
+@
+
+\subsection*{1.1: Implement the gradient for logistic regression}
+
+For this subsection we will implement the gradient for logistic regression and we have been given the likelihood function for the logistic regression which looks as follows: 
+$$
+L(\theta, \mathbf{y}, \mathbf{X})=\prod_{i=1}^n p_i^{y_i}\left(1-p_i\right)^{1-y_i}
+$$
+Further, the formula for the logit link is as follows: 
+$$
+logit(p_i) = log(\frac{p_i}{1-p_i}) = \boldsymbol{x}_i \theta 
+$$
+where $\boldsymbol{x}_i$ denotes the i:th row of the design matrix $\boldsymbol{X}$ and $\theta:1\times P$ is a parameter vector. 
+
+\subsubsection*{1.1.1}
+
+For this subsection we will derive the gradient for the negative log likelihood with respect to $\theta: p\times 1$ where we have that $\operatorname{NLL}(\theta, \mathbf{y}, \mathbf{X})=-l(\theta, \mathbf{y}, \mathbf{X})$. 
+
+$$
+\operatorname{NLL}(\theta, \mathbf{y}, \mathbf{X}) = -l(\theta, \mathbf{y}, \mathbf{X}) =  
+- \sum_{i=1}^n y_i \mathbf{x}_i \theta + \log \left(1+\exp \left(\mathbf{x}_i \theta\right)\right)
+$$
+
+Now when the negative log likelihood $\operatorname{NLL}$ has been defined, we will compute the gradient with respect to parameter vector, i.e $\boldsymbol{\theta}:px1$ according to below: 
+
+$$
+\frac{\partial N L L(\theta, \boldsymbol{y}, \boldsymbol{X})}{\partial \boldsymbol{\theta}} = 
+- \sum_{i=1}^{n} y_{i} \boldsymbol{x}_{i} + \frac{1}{1 + exp(\boldsymbol{x}_{i} \theta )}  exp(\boldsymbol{x}_{i} \theta )  \boldsymbol{x}_i = - \sum_{i=1}^{n} \left(y_{i}  + \frac{exp(\boldsymbol{x}_{i} \theta ) }{ 1 + exp(\boldsymbol{x}_{i} \theta ) } \right)  \boldsymbol{x}_i
+$$
+
+This is the gradient for the negative log likelihood with respect to the $\theta$.
+
+\subsubsection*{1.1.2}
+
+Now we will implement the gradient as a function in R where the function return the gradient of $\frac{1}{n} l\left(\theta, \boldsymbol{y}, \boldsymbol{X}, \right)$. Further, we will present the output of the function when using $\theta = (0,0,0)^{\prime}$ and  $\theta = (-1,0.5,0.5)^{\prime}$. 
+
+<<>>=
+ll_grad <- function(y, X, theta){
+  n <- length(y)
+  gradient <- t(y - exp(X%*% theta )/(1+exp(X%*% theta)))%*%X/n
+  return(gradient)
+}
+ll_grad(y, X, theta = c(0,0,0))
+ll_grad(y, X, theta = c(-1,0.5,0.5))
+@
+
+
+\subsection*{1.2: Implement Gradient Descent}
+
+\subsubsection*{1.2.1}
+
+Now we will run logistic regression in R to get an maximum likelihood estimate of $\theta$ using the glm\-function. Since the design matrix X already consists of an intercept, ie that the first column in X is a column of ones, we will state the formula argument in glm as 
+$y  ~ -1 + X$.  
+
+<<>>=
+# link function default set to logit link 
+# we are including -1 since the design matrix already include an intercept 
+glm_log_reg <- glm(formula = y  ~ -1 + X, family= binomial())
+glm_log_reg$coefficients
+@
+
+\subsubsection*{1.2.2a: ordinary gradient descent}
+
+For this subsection we will implement three gradient descent algorithms as three separate R functions. The first gradient descent algorithm that will be implemented is the ordinary gradient descent, the second is stochastic gradient descent and the third is mini\-batch gradient descent. 
+
+<<>>=
+# Example 1.2.2a
+mbsgd_ord <- function(y, X, sample_size, eta, epochs) {
+  
+  results <- matrix(0, ncol = ncol(X) + 2L, nrow = epochs)
+  colnames(results) <- c("epochs", "nll", colnames(X))
+  
+  theta <- rep(0.0, ncol(X)) # this is the parameter vector 
+  
+  for ( j in 1:epochs) {
+    
+    gradient <- -ll_grad(y, X, theta)
+    theta <- theta - eta * t(gradient)
+    
+    results[j, "epochs"] <- j
+    results[j, "nll"] <- ll(y, X, theta) 
+    results[j, -(1:2)] <- theta
+  }
+  return(results)
+
+}
+@
+
+\subsubsection*{1.2.2b: stochastic gradient descent}
+
+<<>>=
+# Example 1.2.2b
+mbsgd_sto <- function(y, X, sample_size, eta, epochs){
+  
+  results <- matrix(0.0, ncol = ncol(X) + 2L, nrow = epochs)
+  colnames(results) <- c("epoch", "nll", colnames(X))
+  
+  theta <- rep(0.0, ncol(X)) 
+  
+  for(j in 1:epochs){
+    random <- sample(length(y))
+    
+    for (i in random) {
+      
+      theta_grad <- -ll_grad(y[i], X[i,], theta)
+      theta <- theta - eta*t(theta_grad)
+      
+      results[j, "epoch"] <- j
+      results[j, "nll"] <- ll(y, X, theta) 
+      results[j, -(1:2)] <- theta
+    }
+  }
+  return(results)
+}
+@
+
+\subsubsection*{1.2.2c: mini\-batch gradient descent}
+
+<<>>=
+# Example 1.2.2c
+mbsgd_mini <- function(y, X, sample_size, eta, epochs){
+  results <- matrix(0.0, ncol = ncol(X) + 2L, nrow = epochs)
+  colnames(results) <- c("epoch", "nll", colnames(X))
+  
+  theta <- rep(0, ncol(X))
+  
+  for(j in 1:epochs){
+    
+    num_batch <- length(y)/sample_size
+    
+    for (i in 1:num_batch) {
+      
+      start <-(i-1)* sample_size + 1
+      end <- min(i* sample_size, length(y))
+      x_batch <- X[start:end,]
+      y_batch <- y[start:end]
+      theta_grad <- -ll_grad(y_batch, x_batch, theta)
+      theta <- theta - eta*t(theta_grad)
+      
+      results[j, "epoch"] <- j
+      results[j, "nll"] <- ll(y, X, theta) 
+      results[j, -(1:2)] <- theta
+    }
+  }
+return(results)
+}
+@
+
+\subsection*{1.2.3}
+Now we will try the algorithm for different parameter values of $\eta$ and run the algorithm for roughly 500 epochs. We will use three different $\eta$, one where the optimizer diverge, one $\eta$ where the optimizer converge very slowly and one $\eta$ where the optimizer converge quicker. The value of $\eta$ will fixed for all 500 epochs. There will be one plot for the negative log\-likelihood value for all observations for a given $\theta$ and the value of one $\theta$ parameter element where we include the true values obtained from the glm\-function as a  horizontal line in the figure.
+
+<<fig.cap="Plots for ordinary gradient decent", fig.align='center'>>=
+par(mfrow=c(3,2))
+result1 <- mbsgd_ord(y, X, sample_size = 10, eta = 0.2, epochs = 500)
+plot(result1[,2], type = "l", main = "eta = 0.2", ylab = "NLL", xlab = "epochs")
+plot(result1[,4], type = "l", main = "eta = 0.2", ylab = "gre_sd", xlab = "epochs")
+abline(h = glm_log_reg$coefficients[2], col = "blue")
+
+result2 <- mbsgd_ord(y, X, sample_size = 10, eta = 0.01, epochs = 500)
+plot(result2[,2], type = "l", main = "eta = 0.01", ylab = "NLL", xlab = "epochs")
+plot(result2[,4], type = "l", main = "eta = 0.01", ylab = "gre_sd", xlab = "epochs")
+abline(h = glm_log_reg$coefficients[2], col = "blue")
+
+result3 <- mbsgd_ord(y, X, sample_size = 10, eta = 40, epochs = 500)
+plot(result3[,2], type = "l", main = "eta = 40", ylab = "NLL", xlab = "epochs")
+plot(result3[,4], type = "l", main = "eta = 40", ylab = "gre_sd", xlab = "epochs")
+abline(h = glm_log_reg$coefficients[2], col = "blue")
+@
+
+<<fig.cap="Plots for stochastic gradient decent", fig.align='center'>>=
+par(mfrow=c(3,2))
+result4 <- mbsgd_sto(y, X, sample_size = 10, eta = 0.002, epochs = 500)
+plot(result4[,2], type = "l", main = "eta = 0.002", ylab = "NLL", xlab = "epochs")
+plot(result4[,4], type = "l", main = "eta = 0.002", ylab = "gre_sd", xlab = "epochs")
+abline(h = glm_log_reg$coefficients[2], col = "blue")
+
+result5 <- mbsgd_sto(y, X, sample_size = 10, eta = 0.00001, epochs = 500)
+plot(result5[,2], type = "l", main = "eta = 0.00001", ylab = "NLL", xlab = "epochs")
+plot(result5[,4], type = "l", main = "eta = 0.00001", ylab = "gre_sd", xlab = "epochs")
+abline(h = glm_log_reg$coefficients[2], col = "blue")
+
+result6 <- mbsgd_sto(y, X, sample_size = 10, eta = 0.2, epochs = 500)
+plot(result6[,2], type = "l", main = "eta = 0.2", ylab = "NLL", xlab = "epochs")
+plot(result6[,4], type = "l", main = "eta = 0.2", ylab = "gre_sd", xlab = "epochs")
+abline(h = glm_log_reg$coefficients[2], col = "blue")
+@
+
+
+<<fig.cap="Plots for mini batch gradient decent", fig.align='center'>>=
+par(mfrow=c(3,2))
+result7 <- mbsgd_mini(y, X, sample_size = 10, eta = 0.02, epochs = 500)
+plot(result7[,2], type = "l", main = "eta = 0.02", ylab = "NLL", xlab = "epochs")
+plot(result7[,4], type = "l", main = "eta = 0.02", ylab = "gre_sd", xlab = "epochs")
+abline(h = glm_log_reg$coefficients[2], col = "blue")
+
+result8 <- mbsgd_mini(y, X, sample_size = 10, eta = 0.001, epochs = 500)
+plot(result8[,2], type = "l", main = "eta = 0.001", ylab = "NLL", xlab = "epochs")
+plot(result8[,4], type = "l", main = "eta = 0.001", ylab = "gre_sd", xlab = "epochs")
+abline(h = glm_log_reg$coefficients[2], col = "blue")
+
+result9 <- mbsgd_mini(y, X, sample_size = 10, eta = 50, epochs = 500)
+plot(result9[,2], type = "l", main = "eta = 50", ylab = "NLL", xlab = "epochs")
+plot(result9[,4], type = "l", main = "eta = 50", ylab = "gre_sd", xlab = "epochs")
+abline(h = glm_log_reg$coefficients[2], col = "blue")
+@
+
+\newpage 
+
+\section*{Task 2: Regularized Regression}
+
+The dataset prob2\_train and prob2\_test contains of simulated data with 240  explanatory variables and 1 numerical response variable y. We access the data by running the following code: 
+<<>>=
+library(uuml)
+data("prob2_train")
+data("prob2_test")
+dim(prob2_train) 
+# both prob2_train and prob2_test is a high dimensional data sets 
+# since the number of variables exceeds the number of 
+# observations ie p > n. 
+
+X <- as.matrix(prob2_train[,-241])
+y <- as.matrix(prob2_train[,"y"])
+X_test <- as.matrix(prob2_test[,-241])
+y_test <- as.matrix(prob2_test[,"y"])
+@
+
+\subsection*{2.1}
+Now we will fit the linear model to the training data and analyze the result
+<<>>=
+fit_lm <- lm(y  ~  X)
+fit_lm
+@
+We have that the number of observations for the design matrix X is less than the number of columns $/$ variables in the "training" design matrix X. Hence we get NA for the last 41 covariates. 
+
+\subsection*{2.2}
+Now we will use glmnet\-function from the glmnet package to fit the linear lasso regression to the training data with $\lambda = 1$.
+<<>>=
+library(glmnet)
+fit_glmnet <- glmnet(X, y, lambda = 1)
+estimated_coef <- coefficients(fit_glmnet)
+summary(estimated_coef)
+@
+When looking at the output we can see that the model use 9  coefficients when fitting the model, the first being intercept. 
+
+\subsection*{2.3 and 2.4}
+Now we will implement 10 fold cross validation on the training data as a function that has fold variable, X, y and $\lambda$ value as input and then outputs the RMSE. 
+<<>>= 
+library(uuml)
+
+glmnet_cv <- function(num_folds, X, y, lambda) {
+  X_trainfold <- list()
+  X_valfold <- list() 
+  y_trainfold <- list() 
+  y_valfold <- list() 
+  rmse_values <- c()
+  fold <- sample(1:10, nrow(X), replace = TRUE)
+  
+  for (i in 1:num_folds) {
+  
+    X_trainfold <- X[fold!=i,]
+    y_trainfold <- y[fold!=i]
+    X_valfold <- X[fold==i,] 
+    y_valfold <- y[fold==i]  
+    
+    fit_mod <- glmnet(X_trainfold, y_trainfold,  alpha = 1, lambda = lambda) 
+    pred_y<- predict(fit_mod, newx = X_valfold)
+    rmse_values[i] <- rmse(pred_y, y_valfold)
+  }
+  output <- mean(rmse_values)
+  return(output)
+}
+
+@
+
+\subsection*{2.5}
+Now we will calculate the RMSE for $\lambda = 1$ using 5 fold cross validation on the training data.
+<<>>=
+set.seed(123)
+glmnet_cv(num_folds = 5, X, y, lambda= 1) 
+@
+
+we have that the RMSE for $\lambda = 1$ using 5 fold cross validation corresponds to 3.260543 when having seed 123.
+
+\subsection*{2.6}
+Now we will look for the value of the hyper parameter $\lambda$ that results in the lowest $/$ best root mean squared error, RMSE, with 10\-fold cross\-validation. This will be done on the training data 
+<<>>=
+set.seed(123)
+lambda_vector <- seq(0,1, by = 0.01)
+optimal_lambda<- 0 
+optimal_rmse <-Inf
+
+for (i in lambda_vector) {
+  rmse <- glmnet_cv(num_folds = 10, X, y, lambda = i)
+  if (rmse < optimal_rmse) {
+    optimal_rmse <- rmse
+    optimal_lambda <- i
+  }
+}
+optimal_lambda
+@
+
+Based on the output above we have that $\lambda = 0.07$ results in the lowest RMSE when using 10 fold cross validation and seed 123. 
+
+\subsection*{2.7}
+Now we will the best model to do predictions on the test set. 
+<<>>=
+set.seed(123)
+best_model <- glmnet(X,y, lambda = optimal_lambda)
+pred_best_model <- predict(best_model, newx = X_test)
+rmse(pred_best_model, y_test)
+@
+
+As can be seen in the output above, the RMSE on the test set corresponds to approximately $0.804$. 
+
+\end{document}
